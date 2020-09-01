@@ -176,35 +176,55 @@ namespace adl {
 				// 'callable' - can be a first execution agent or a 'strand' node with execution agents
 				// 'inputContinuation' - can be a next continuation node or last execution agent passed to then
 
-				adl::post<channel_t>([callable = std::move(callable), continuation = std::forward<decltype(inputContinuation)>(inputContinuation)]()
+				using ExCallableRef = decltype(callable);
+				using ExContinuationRef = decltype(inputContinuation);
+				using ExContinuationChannel = ContinuationChannel;
+				using ExDeferChannel = channel_t;
+
+				struct ExecutionWrapper
 				{
-					// Variables here:
-					// 'callable' - can be a first execution agent or a 'strand' node with execution agents
-					// 'continuation' - can be a node or last execution agent passed to the task
+					std::remove_reference_t<ExCallableRef> callable;
+					std::remove_reference_t<ExContinuationRef> continuation;
 
-					auto result = details::try_invoke_with_context(callable);
-
-					// if result with context this code will check if continuation was canceled.
-					// if result without context this code will be thrown away by compiler since in this case is_execution_canceled always return false
-					if (details::is_execution_canceled(result))
+					inline constexpr void operator()()
 					{
-						return;
+						auto result = details::try_invoke_with_context(callable);
+
+						// if result with context this code will check if continuation was canceled.
+						// if result without context this code will be thrown away by compiler since in this case is_execution_canceled always return false
+						if (details::is_execution_canceled(result))
+						{
+							return;
+						}
+
+						// if result with context this code will check if continuation was deferred.
+						// if result without context this code will be thrown away by compiler since in this case is_execution_deferred always return false
+						if (details::is_execution_deferred(result))
+						{
+							// Defer current task
+							adl::post_defer<ExDeferChannel>(ExecutionWrapper{ std::move(callable), std::move(continuation) });
+
+							return;
+						}
+
+						// Post continuation to the specified channel so it will be invoked by channel executor
+						adl::post<ExContinuationChannel>([result = details::unwrap_execution_result(std::move(result)), continuation = std::move(continuation)]()
+						{
+							// Captured variables here:
+							// 'result' - result of the previous execution agent or a placeholder (if previous execution returned void)
+							// 'continuation' - can be a node or last execution agent passed to the task
+
+							// If continuation is a node, we should always pass the result to it, since it can't be ignored.
+							// If this is an execution agent, we should pass the result only if it can be invoked with it.
+							// For example last leaf can be a function with no arguments, and in this case result is discarded. 
+							// #TODO: need a better way to find out if continuation is a node or execution agent
+							try_invoke_with_arg(continuation, std::move(result));
+						});
 					}
+				};
 
-					// Post continuation to the specified channel so it will be invoked by channel executor
-					adl::post<ContinuationChannel>([result = details::unwrap_execution_result(std::move(result)), continuation = std::move(continuation)]()
-					{
-						// Captured variables here:
-						// 'result' - result of the previous execution agent or a placeholder (if previous execution returned void)
-						// 'continuation' - can be a node or last execution agent passed to the task
+				adl::post<channel_t>(ExecutionWrapper{ std::move(callable), std::forward<ExContinuationRef>(inputContinuation) });
 
-						// If continuation is a node, we should always pass the result to it, since it can't be ignored.
-						// If this is an execution agent, we should pass the result only if it can be invoked with it.
-						// For example last leaf can be a function with no arguments, and in this case result is discarded. 
-						// #TODO: need a better way to find out if continuation is a node or execution agent
-						try_invoke_with_arg(continuation, std::move(result));
-					});
-				});
 			},
 				details::unwrap(std::forward<F>(thenExecutionAgent)));
 		}
@@ -349,29 +369,66 @@ namespace adl {
 					// 'continuation' - can be a node or last execution agent passed to the task
 					// 'prevResult' - result of the previous execution agent or a placeholder (if previous execution returned void)
 
-					auto result = details::try_invoke_with_context(callable, std::forward<decltype(prevResult)>(prevResult));
+					using ExCallableRef = decltype(callable);
+					using ExContinuationRef = decltype(inputContinuation);
+					using ExContinuation = std::remove_reference_t<ExContinuationRef>;
+					using ExResultRef = decltype(prevResult);
+					using ExContinuationChannel = ContinuationChannel;
+					using ExDeferChannel = channel_t;
 
-					// if result with context this code will check if continuation was canceled.
-					// if result without context this code will be thrown away by compiler since in this case is_execution_canceled always return false
-					if (details::is_execution_canceled(result))
+					struct ExecutionWrapper
 					{
-						return;
-					}
+						std::remove_reference_t<ExCallableRef>		callable;
+						std::remove_reference_t<ExContinuationRef>	continuation;
+						std::remove_reference_t<ExResultRef>		prevResult;
 
-					// Post continuation to the specified channel so it will be invoked by channel executor
-					adl::post<ContinuationChannel>([result = details::unwrap_execution_result(std::move(result)), continuation = std::move(continuation)]()
-					{
-						// Captured variables here:
-						// 'result' - result of the previous execution agent or a placeholder (if previous execution returned void)
-						// 'continuation' - can be a node or last execution agent passed to the task
+						inline constexpr void operator()()
+						{
+							invoke(std::move(callable), std::move(continuation), std::move(prevResult));
+						}
 
-						// If continuation is a node, we should always pass the result to it. See argument (auto&& prevResult) in lambda above, it can't be ignored.
-						// So if the result is placeholder, it will be ignored during continuation invoke.
-						// If this is an execution agent, we should pass the result only if it can be invoked with it.
-						// For example last leaf can be a function with no arguments, and in this case result is discarded. 
-						// #TODO: need a better way to find out if continuation is a node or execution agent
-						try_invoke_with_arg(continuation, std::move(result));
-					});
+						static inline constexpr void invoke(ExCallableRef callable, ExContinuation continuation, ExResultRef prevResult)
+						{
+							// Result shouldn't be moved if callable is invokable with context
+							// It is possible that execution will be deferred and prev result will be reused in call of the deferred task
+							// This imposes restrictions to the callable signature, - smth like 'void foo(ExecutionContext&, T&&)' is prohibited, second argument can't be rvalue
+							auto result = details::try_invoke_with_context(callable, details::move_if_invokable_without_context<ExCallableRef>(prevResult));
+
+							// if result with context this code will check if continuation was canceled.
+							// if result without context this code will be thrown away by compiler since in this case is_execution_canceled always return false
+							if (details::is_execution_canceled(result))
+							{
+								return;
+							}
+
+							// if result with context this code will check if continuation was deferred and post a new deferred call.
+							// if result without context this code will be thrown away by compiler since in this case is_execution_deferred always return false
+							if (details::is_execution_deferred(result))
+							{
+								// Defer current task
+								adl::post_defer<ExDeferChannel>(ExecutionWrapper{ std::move(callable), std::move(continuation), std::move(prevResult) });
+
+								return;
+							}
+
+							// Post continuation to the specified channel so it will be invoked by channel executor
+							adl::post<ExContinuationChannel>([result = details::unwrap_execution_result(std::move(result)), continuation = std::move(continuation)]()
+							{
+								// Captured variables here:
+								// 'result' - result of the previous execution agent or a placeholder (if previous execution returned void)
+								// 'continuation' - can be a node or last execution agent passed to the task
+
+								// If continuation is a node, we should always pass the result to it. See argument (auto&& prevResult) in lambda above, it can't be ignored.
+								// So if the result is placeholder, it will be ignored during continuation invoke.
+								// If this is an execution agent, we should pass the result only if it can be invoked with it.
+								// For example last leaf can be a function with no arguments, and in this case result is discarded. 
+								// #TODO: need a better way to find out if continuation is a node or execution agent
+								try_invoke_with_arg(continuation, std::move(result));
+							});
+						}
+					};
+
+					ExecutionWrapper::invoke(callable, std::move(continuation), std::forward<ExResultRef>(prevResult));
 				});
 			},
 				details::unwrap(std::forward<F>(thenExecutionAgent)));

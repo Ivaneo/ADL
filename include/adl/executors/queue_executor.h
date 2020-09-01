@@ -13,16 +13,23 @@ public:
     template<typename F>
     void execute(F&& callable)
     {
-        std::unique_lock lock{ m_mutex };
+        std::unique_lock lock{ m_tasksMutex };
         m_tasks.emplace(std::forward<F>(callable));
     }
 
 	template<typename... Args>
 	void bulk_execute(Args&&... callables)
 	{
-		std::unique_lock lock{ m_mutex };
+		std::unique_lock lock{ m_tasksMutex };
         (..., m_tasks.emplace(std::forward<Args>(callables)));
     }
+
+	template<typename F>
+	void defer_execute(F&& callable)
+	{
+		std::unique_lock lock{ m_deferredTasksMutex };
+		m_deferredTasks.emplace(std::forward<F>(callable));
+	}
 
     template<typename F>
     auto future_execute(F&& callable)
@@ -32,7 +39,7 @@ public:
 		auto task = make_task(std::move(promise), std::forward<F>(callable));
 
 		{
-			std::unique_lock lock{ m_mutex };
+			std::unique_lock lock{ m_tasksMutex };
 			m_tasks.emplace(std::move(task));
 		}
 
@@ -47,7 +54,7 @@ public:
 		auto tasks = make_tasks(std::move(promises), std::forward<Args>(callables)...);
 
 		{
-			std::unique_lock lock{ m_mutex };
+			std::unique_lock lock{ m_tasksMutex };
 			std::apply([this](auto&&... args) { (..., m_tasks.emplace(std::forward<decltype(args)>(args))); }, std::move(tasks));
 		}
 
@@ -58,13 +65,20 @@ public:
     {   
         while (!m_tasks.empty())
         {
-            std::unique_lock lock{ m_mutex };
+            std::unique_lock lock{ m_tasksMutex };
             auto task = std::move(m_tasks.front());
             m_tasks.pop();
             lock.unlock();
 
             std::invoke(task);
         }
+
+		std::scoped_lock lock{ m_deferredTasksMutex, m_tasksMutex };
+		while (!m_deferredTasks.empty())
+		{
+			m_tasks.emplace(std::move(m_deferredTasks.front()));
+			m_deferredTasks.pop();
+		}
     }
 
 private:
@@ -130,8 +144,10 @@ private:
 
 private:
 
-    std::mutex m_mutex;
+    std::mutex m_tasksMutex;
+	std::mutex m_deferredTasksMutex;
     std::queue<std::function<void()>> m_tasks;
+	std::queue<std::function<void()>> m_deferredTasks;
 };
 
 }

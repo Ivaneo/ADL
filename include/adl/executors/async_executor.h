@@ -36,6 +36,12 @@ namespace adl
             }, std::move(futures));
         }
 
+		template<typename F>
+		void defer_execute(F&& callable)
+		{
+			execute(std::forward<F>(callable));
+		}
+
         template<typename F>
         auto future_execute(F&& callable)
         {

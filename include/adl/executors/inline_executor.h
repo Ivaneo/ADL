@@ -21,6 +21,13 @@ public:
         (..., std::forward<Args>(callables)());
     }
 
+	template<typename F>
+	inline constexpr void defer_execute(F&& callable)
+	{
+		// Be careful, deferring tasks for inline executor is a recursion!
+		callable();
+	}	
+
     template<typename F>
     inline auto future_execute(F&& callable)
     {

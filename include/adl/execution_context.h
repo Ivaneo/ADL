@@ -8,13 +8,25 @@ namespace adl
 	public:
 
 		// Cancel further continuations
-		void cancel() { m_canceled = true; }
+		void cancel() { m_state = State::Canceled; }
 
-		bool is_canceled() const { return m_canceled; }
+		// Defer task, executor should support deferred execution
+		void defer() { m_state = State::Deferred; }
+
+		bool is_canceled() const { return m_state == State::Canceled; }
+
+		bool is_deferred() const { return m_state == State::Deferred; }
 
 	private:
 
-		bool m_canceled = false;
+		enum class State
+		{
+			Valid,
+			Canceled,
+			Deferred
+		};
+
+		State m_state = State::Valid;
 	};
 
 	namespace details
@@ -75,6 +87,19 @@ namespace adl
 		}
 
 		template <typename F, typename T>
+		constexpr auto move_if_invokable_without_context(T&& arg)
+		{
+			if constexpr (is_invokable_with_context_v<F, T>)
+			{
+				return std::forward<T>(arg);
+			}
+			else
+			{
+				return std::move(arg);
+			}
+		}
+
+		template <typename F, typename T>
 		constexpr auto try_invoke_with_context_impl(F&& f, T&& result)
 		{
 			if constexpr (is_invokable_with_context_v<F, T>)
@@ -113,6 +138,18 @@ namespace adl
 
 		template<typename T>
 		constexpr bool is_execution_canceled(T&&)
+		{
+			return false;
+		}
+
+		template<typename T>
+		constexpr bool is_execution_deferred(ResultWithContext<T>& result)
+		{
+			return result.context.is_deferred();
+		}
+
+		template<typename T>
+		constexpr bool is_execution_deferred(T&&)
 		{
 			return false;
 		}

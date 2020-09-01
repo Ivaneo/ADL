@@ -28,6 +28,13 @@ static void post(CallableType&& callable)
     get_executor<ChannelType>().execute(std::forward<CallableType>(callable));
 }
 
+// Submit execution agent for one-way deferred execution in provided channel
+template<typename ChannelType, typename CallableType>
+static void post_defer(CallableType&& callable)
+{
+	get_executor<ChannelType>().defer_execute(std::forward<CallableType>(callable));
+}
+
 // Submit a group of execution agents for one-way execution in provided channel
 template<typename ChannelType, typename... CallableTypes>
 static void post_bulk(CallableTypes&&... callables)

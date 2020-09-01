@@ -51,6 +51,40 @@ namespace
 		ValueHolder::value = value;
 		return ValueHolder::value;
 	}
+
+	template<size_t value>
+	struct GenerateDeferOnce
+	{
+		size_t operator()(adl::ExecutionContext& context)
+		{
+			if (defer)
+			{
+				context.defer();
+				defer = false;
+			}
+
+			return value;
+		}
+
+		bool defer = true;
+	};
+
+	template<size_t addValue>
+	struct AddDeferOnce
+	{
+		size_t operator()(adl::ExecutionContext& context, size_t prevValue)
+		{
+			if (defer)
+			{
+				context.defer();
+				defer = false;
+			}
+
+			return prevValue + addValue;
+		}
+
+		bool defer = true;
+	};
 }
 
 void test_Task_ExecutionCancel()
@@ -63,6 +97,21 @@ void test_Task_ExecutionCancel()
 		// Should not compile since its a task with no continuations
 		//adl::task(&void_cancel)
 		//	.submit();
+	}
+
+	{
+		reset_value<ID>();
+
+		auto t = adl::task<Channel_Q1>(&generate_cancel<GEN>) // all further continuation should not be invoked
+			.then<Channel_Q2>(&add<ADD>)
+			.then(&set_a<ID>);
+
+		t.submit();
+
+		adl::dispatch<Channel_Q1>();
+		adl::dispatch<Channel_Q2>();
+
+		assert(get_value<ID>() == 0);
 	}
 
 	{
@@ -181,7 +230,56 @@ void test_Task_ExecutionCancel()
 	}
 }
 
+void test_Task_ExecutionDefer()
+{
+	constexpr size_t ID = __LINE__;
+	constexpr size_t GEN = __LINE__;
+	constexpr size_t ADD = __LINE__;
+
+	{
+		reset_value<ID>();
+
+		auto t = adl::task<Channel_Q1>(GenerateDeferOnce<GEN>{})
+			.then<Channel_Q2>(&add<ADD>)
+			.then(&set_a<ID>);
+
+		t.submit();
+
+		adl::dispatch<Channel_Q1>();
+		adl::dispatch<Channel_Q2>();
+
+		// On the first dispatch task should be deferred
+		assert(get_value<ID>() == 0);
+
+		adl::dispatch<Channel_Q1>();
+		adl::dispatch<Channel_Q2>();
+
+		assert(get_value<ID>() == GEN + ADD);
+	}
+
+	{
+		reset_value<ID>();
+
+		auto t = adl::task<Channel_Q1>(&generate<GEN>)
+			.then<Channel_Q2>(AddDeferOnce<ADD>{})
+			.then(&set_a<ID>);
+
+		t.submit();
+
+		adl::dispatch<Channel_Q1>();
+		adl::dispatch<Channel_Q2>();
+
+		// On the first dispatch task should be deferred
+		assert(get_value<ID>() == 0);
+
+		adl::dispatch<Channel_Q2>();
+
+		assert(get_value<ID>() == GEN + ADD);
+	}
+}
+
 void test_Task_ExecutionContext()
 {
 	test_Task_ExecutionCancel();
+	test_Task_ExecutionDefer();
 }
