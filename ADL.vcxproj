@@ -164,8 +164,10 @@
     <ClInclude Include="include\adl\dispatcher.h" />
     <ClInclude Include="include\adl\execution_context.h" />
     <ClInclude Include="include\adl\executors\async_executor.h" />
+    <ClInclude Include="include\adl\executors\executor.h" />
     <ClInclude Include="include\adl\executors\inline_executor.h" />
     <ClInclude Include="include\adl\executors\queue_executor.h" />
+    <ClInclude Include="include\adl\executors\strand_executor.h" />
     <ClInclude Include="include\adl\placeholder.h" />
     <ClInclude Include="include\adl\task.h" />
     <ClInclude Include="src\tests\test.hpp" />
@@ -177,6 +179,7 @@
     <ClCompile Include="src\tests\test_InlineExecutor.cpp" />
     <ClCompile Include="src\tests\test_Placeholder.cpp" />
     <ClCompile Include="src\tests\test_QueueExecutor.cpp" />
+    <ClCompile Include="src\tests\test_StrandExecutor.cpp" />
     <ClCompile Include="src\tests\test_Task.cpp" />
     <ClCompile Include="src\tests\test_Task_Channel.cpp" />
     <ClCompile Include="src\tests\test_Task_ExecutionContext.cpp" />

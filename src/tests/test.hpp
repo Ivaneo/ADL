@@ -60,6 +60,7 @@ void test_ExecutionContext();
 void test_QueueEecutor();
 void test_AsyncExecutor();
 void test_InlineExecutor();
+void test_StrandEecutor();
 void test_Task();
 void test_Task_Channel();
 void test_Task_ExecutionContext();
@@ -69,6 +70,7 @@ inline void run_tests()
 	test_Placeholder();
 	test_ExecutionContext();
 	test_QueueEecutor();
+	test_StrandEecutor();
 	test_AsyncExecutor();
 	test_InlineExecutor();
 	test_Task();
