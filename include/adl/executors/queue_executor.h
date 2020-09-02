@@ -1,4 +1,8 @@
 #pragma once
+// Copyright (c) 2020 Ivan Miasnikov | mailto:ivaneotg@gmail.com
+// MIT License | https://opensource.org/licenses/MIT
+
+#pragma once
 #include "executor.h"
 #include <functional>
 #include <queue>

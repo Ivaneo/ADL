@@ -1,3 +1,6 @@
+// Copyright (c) 2020 Ivan Miasnikov | mailto:ivaneotg@gmail.com
+// MIT License | https://opensource.org/licenses/MIT
+
 #pragma once
 #include "channel.h"
 #include "executors/inline_executor.h"
